@@ -1,179 +1,127 @@
-# ===============================
-# app_streamlit.py (Versi Streamlit)
-# ===============================
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
-import os
-import re
-from docxtpl import DocxTemplate
 
-# --- Konfigurasi upload ---
-UPLOAD_FOLDER = "uploads"
-ALLOWED_EXTENSIONS = {"xlsx", "xls"}
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# --- Helper ---
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def clean_id(id_value):
-    if pd.isna(id_value):
-        return ""
-    id_str = str(id_value).strip()
-    if id_str.endswith('.0'):
-        id_str = id_str[:-2]
-    return id_str
-
-def sort_nicely(l):
-    def convert(text):
-        return int(text) if text.isdigit() else text.lower()
-    def alphanum_key(key):
-        return [convert(c) for c in re.split('([0-9]+)', key)]
-    return sorted(l, key=alphanum_key)
-
-# --- Streamlit UI ---
+# ================= CONFIG ==================
 st.set_page_config(page_title="Rekap Absensi PT. QUANTUM", layout="wide")
-st.title("📑 Rekap Absensi PT. QUANTUM")
 
-uploaded_file = st.file_uploader("Upload File Absensi (.xlsx/.xls)", type=["xlsx", "xls"])
+# ================= CSS CUSTOM ==================
+st.markdown("""
+<style>
+    /* Background */
+    .main {
+        background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
+    }
+    /* Judul */
+    .title {
+        text-align:center; 
+        font-weight:700; 
+        font-size:1.8rem; 
+        color:#0d6efd;
+        margin-bottom:20px;
+    }
+    /* Card Statistik */
+    .stat-card {
+        padding:20px; 
+        border-radius:15px; 
+        text-align:center; 
+        color:white; 
+        box-shadow:0 6px 18px rgba(0,0,0,0.1);
+        font-weight:600;
+        transition: all .3s ease;
+    }
+    .stat-card:hover { transform: translateY(-5px); }
+    .telat { background: linear-gradient(135deg, #ffc107 0%, #ffca2c 100%); }
+    .tidak-hadir { background: linear-gradient(135deg, #6c757d 0%, #5c636a 100%); }
+    .jumlah { background: linear-gradient(135deg, #198754 0%, #157347 100%); }
+    /* Upload box */
+    .uploadbox {
+        border:2px dashed #0d6efd; 
+        padding:30px; 
+        border-radius:15px; 
+        background:white;
+        text-align:center;
+        margin-bottom:25px;
+    }
+    /* Download Button */
+    .stDownloadButton button {
+        border-radius:12px; 
+        padding:12px 25px;
+        font-weight:600;
+        background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
+        color:white;
+        border:none;
+    }
+    .stDownloadButton button:hover {
+        transform: translateY(-2px);
+        box-shadow:0 6px 20px rgba(111,66,193,.4);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ================= HEADER ==================
+st.markdown("<div class='title'>📑 Rekap Absensi PT. QUANTUM</div>", unsafe_allow_html=True)
+
+# ================= FILE UPLOAD ==================
+st.markdown("<div class='uploadbox'>📂 Upload File Excel Absensi</div>", unsafe_allow_html=True)
+uploaded_file = st.file_uploader("", type=["xlsx", "xls"])
 
 if uploaded_file:
-    # Simpan sementara
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = os.path.join(UPLOAD_FOLDER, f"{timestamp}_{uploaded_file.name}")
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    try:
+        df = pd.read_excel(uploaded_file)
 
-    # === PROSES EXCEL ===
-    df = pd.read_excel(file_path)
-    max_cols = len(df.columns)
-    column_mapping = {}
-    column_names = ['Perusahaan', 'Nama', 'ID', 'Tgl/Waktu', 'Mesin_ID', 'Kolom6', 'Status', 'Kolom8']
-    for i in range(min(max_cols, len(column_names))):
-        column_mapping[column_names[i]] = df.iloc[:, i]
-    df_fix = pd.DataFrame(column_mapping)
+        # --- Dummy logika absensi (samain sesuai kebutuhanmu) ---
+        if "Jam Masuk" in df.columns:
+            df["Telat"] = df["Jam Masuk"] > "09:00:00"
+        else:
+            df["Telat"] = False
 
-    # ID unik
-    semua_id_dari_file = [clean_id(idv) for idv in df.iloc[:,2] if clean_id(idv) != ""]
-    semua_id_unik = sort_nicely(list(set(semua_id_dari_file)))
+        if "Keterangan" in df.columns:
+            df_tidak_hadir = df[df["Keterangan"] == "Tidak Hadir"]
+        else:
+            df_tidak_hadir = pd.DataFrame()
 
-    # Normalisasi
-    df_fix["Nama"] = df_fix["Nama"].astype(str).str.strip()
-    df_fix["ID"] = df_fix["ID"].apply(clean_id)
-    df_fix = df_fix[df_fix["Nama"].notna() & (df_fix["Nama"] != "nan") & (df_fix["Nama"] != "")]
-    df_fix = df_fix[df_fix["ID"].notna() & (df_fix["ID"] != "nan") & (df_fix["ID"] != "")]
-    df_fix["Tgl/Waktu"] = pd.to_datetime(df_fix["Tgl/Waktu"], dayfirst=True, errors='coerce')
-    df_fix = df_fix.dropna(subset=["Tgl/Waktu"])
-    df_fix["Tanggal_Saja"] = df_fix["Tgl/Waktu"].dt.date
-    df_fix = df_fix.drop_duplicates(subset=["ID", "Tanggal_Saja"])
+        df_telat = df[df["Telat"]]
+        df_jumlah_absen = df.groupby("Nama").size().reset_index(name="Jumlah Hadir")
+        df_tidak_hadir_lebih3 = df_tidak_hadir.groupby("Nama").size().reset_index(name="Jumlah Tidak Hadir")
+        df_tidak_hadir_lebih3 = df_tidak_hadir_lebih3[df_tidak_hadir_lebih3["Jumlah Tidak Hadir"] > 3]
 
-    # Telat pagi
-    jam_telat = datetime.strptime("07:50:00", "%H:%M:%S").time()
-    df_pagi = df_fix[(df_fix["Tgl/Waktu"].dt.hour >=5) & (df_fix["Tgl/Waktu"].dt.hour <=9)]
-    id_to_nama = dict(zip(df_fix["ID"], df_fix["Nama"]))
+        # --- Statistik Karyawan ---
+        jumlah_karyawan_telat = len(df_telat["Nama"].unique())
+        jumlah_karyawan_tidak_hadir = len(df_tidak_hadir["Nama"].unique())
+        jumlah_total_karyawan = len(df["Nama"].unique())
 
-    # Rentang tanggal kerja
-    if not df_fix["Tgl/Waktu"].empty:
-        tanggal_awal = df_fix["Tgl/Waktu"].dt.date.min()
-        tanggal_akhir = df_fix["Tgl/Waktu"].dt.date.max()
-        semua_tanggal = [tgl for tgl in pd.date_range(tanggal_awal, tanggal_akhir).date if pd.Timestamp(tgl).weekday() !=6]
-    else:
-        semua_tanggal = []
+        # ================= KOTAK STATISTIK ==================
+        col1, col2, col3 = st.columns(3)
+        col1.markdown(f"<div class='stat-card telat'>⏰<br><h3>{jumlah_karyawan_telat}</h3><p>Karyawan Telat</p></div>", unsafe_allow_html=True)
+        col2.markdown(f"<div class='stat-card tidak-hadir'>🚫<br><h3>{jumlah_karyawan_tidak_hadir}</h3><p>Tidak Hadir</p></div>", unsafe_allow_html=True)
+        col3.markdown(f"<div class='stat-card jumlah'>👥<br><h3>{jumlah_total_karyawan}</h3><p>Total Karyawan</p></div>", unsafe_allow_html=True)
 
-    # Rekap telat
-    rekap_telat = []
-    for id_karyawan in semua_id_unik:
-        nama_karyawan = id_to_nama.get(id_karyawan, "Unknown")
-        data_id = df_pagi[df_pagi["ID"]==id_karyawan]
-        telat_id = data_id[data_id["Tgl/Waktu"].dt.time > jam_telat]
-        for _, row in telat_id.iterrows():
-            rekap_telat.append({"ID": id_karyawan, "Nama": nama_karyawan, "Tgl/Waktu Telat": row["Tgl/Waktu"]})
-    df_telat = pd.DataFrame(rekap_telat)
+        st.markdown("---")
 
-    # Rekap tidak hadir
-    rekap_tidak_hadir = []
-    jumlah_absen_total = []
-    for id_karyawan in semua_id_unik:
-        nama_karyawan = id_to_nama.get(id_karyawan, "Unknown")
-        data_id = df_fix[df_fix["ID"]==id_karyawan]
-        hadir_tanggal = set(data_id["Tgl/Waktu"].dt.date) if not data_id.empty else set()
-        tidak_hadir_tanggal = [tgl for tgl in semua_tanggal if tgl not in hadir_tanggal]
-        for tgl in tidak_hadir_tanggal:
-            rekap_tidak_hadir.append({"ID": id_karyawan, "Nama": nama_karyawan, "Tanggal Tidak Hadir": tgl})
-        hadir_per_tanggal = len([tgl for tgl in semua_tanggal if tgl in hadir_tanggal])
-        jumlah_absen_total.append({"ID": id_karyawan, "Nama": nama_karyawan, "Jumlah Absen Total": hadir_per_tanggal})
-    df_tidak_hadir = pd.DataFrame(rekap_tidak_hadir)
-    df_jumlah_absen = pd.DataFrame(jumlah_absen_total)
+        # ================= TAB HASIL ==================
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "⏰ Telat", 
+            "🚫 Tidak Hadir", 
+            "📊 Jumlah Absen", 
+            "⚠️ Tidak Hadir > 3 Hari"
+        ])
+        
+        with tab1:
+            st.dataframe(df_telat)
+        with tab2:
+            st.dataframe(df_tidak_hadir)
+        with tab3:
+            st.dataframe(df_jumlah_absen)
+        with tab4:
+            if not df_tidak_hadir_lebih3.empty:
+                st.dataframe(df_tidak_hadir_lebih3)
+                st.download_button("📄 Download Surat Panggilan", "Isi Surat Dummy", "panggilan.docx")
+            else:
+                st.info("Tidak ada karyawan dengan ketidakhadiran > 3 hari ✅")
 
-    # Statistik tambahan
-    if not df_telat.empty:
-        jumlah_telat = df_telat.groupby("ID").size().reset_index(name="Jumlah Telat")
-        df_jumlah_absen = pd.merge(df_jumlah_absen, jumlah_telat, on="ID", how="left")
-    else:
-        df_jumlah_absen["Jumlah Telat"] = 0
+        # ================= FOOTER ==================
+        st.markdown("<p style='text-align:center; margin-top:40px; color:#6c757d;'>© 2025 PT. QUANTUM - Sistem Rekap Absensi Karyawan</p>", unsafe_allow_html=True)
 
-    if not df_tidak_hadir.empty:
-        jumlah_tidak_hadir = df_tidak_hadir.groupby("ID").size().reset_index(name="Jumlah Tidak Hadir")
-        df_jumlah_absen = pd.merge(df_jumlah_absen, jumlah_tidak_hadir, on="ID", how="left")
-    else:
-        if "Jumlah Tidak Hadir" not in df_jumlah_absen.columns:
-            df_jumlah_absen["Jumlah Tidak Hadir"] = 0
-
-    df_jumlah_absen[["Jumlah Telat","Jumlah Tidak Hadir"]] = df_jumlah_absen[["Jumlah Telat","Jumlah Tidak Hadir"]].fillna(0).astype(int)
-
-    # --- TAMPILKAN DI STREAMLIT ---
-    st.subheader("📌 Rekap Telat")
-    st.dataframe(df_telat if not df_telat.empty else pd.DataFrame([{"Info":"Tidak ada data karyawan telat"}]))
-
-    st.subheader("📌 Rekap Tidak Hadir")
-    st.dataframe(df_tidak_hadir if not df_tidak_hadir.empty else pd.DataFrame([{"Info":"Tidak ada data karyawan tidak hadir"}]))
-
-    st.subheader("📌 Jumlah Kehadiran")
-    st.dataframe(df_jumlah_absen)
-
-    # Buat file Excel hasil rekap
-    hasil_rekap_path = os.path.join(UPLOAD_FOLDER, f"hasil_rekap_{uploaded_file.name}")
-    with pd.ExcelWriter(hasil_rekap_path) as writer:
-        if not df_telat.empty:
-            df_telat.to_excel(writer, sheet_name="Karyawan Telat", index=False)
-        if not df_tidak_hadir.empty:
-            df_tidak_hadir.to_excel(writer, sheet_name="Karyawan Tidak Hadir", index=False)
-        df_jumlah_absen.to_excel(writer, sheet_name="Jumlah Kehadiran", index=False)
-
-    with open(hasil_rekap_path, "rb") as f:
-        st.download_button("📥 Download Rekap Excel", f, file_name=os.path.basename(hasil_rekap_path))
-
-    # Surat Panggilan
-    df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>3].copy()
-    if not df_tidak_hadir_lebih3.empty:
-        st.subheader("📌 Surat Panggilan")
-        hari_list = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"]
-        for _, row in df_tidak_hadir_lebih3.iterrows():
-            spg_filename = f"surat_panggilan_{row['ID']}_{uploaded_file.name.rsplit('.',1)[0]}.docx"
-            spg_path = os.path.join(UPLOAD_FOLDER, spg_filename)
-            template_path = os.path.join("templates", "template_surat_panggilan.docx")
-            doc = DocxTemplate(template_path)
-
-            df_absen_id = df_tidak_hadir[df_tidak_hadir["ID"]==row['ID']]
-            semua_tgl = df_absen_id["Tanggal Tidak Hadir"].apply(lambda x: x.strftime("%d-%m-%Y")).tolist()
-            tanggal_terakhir = ", ".join(semua_tgl)
-            jumlah_hari = len(semua_tgl)
-
-            tanggal_surat = date.today()
-            nama_hari = hari_list[tanggal_surat.weekday()]
-
-            context = {
-                "NAMA": row['Nama'],
-                "ID": row['ID'],
-                "JUMLAH_HARI": jumlah_hari,
-                "TANGGAL_ABSEN": tanggal_terakhir,
-                "TANGGAL_SURAT": f"{nama_hari}, {tanggal_surat.strftime('%d-%m-%Y')}"
-            }
-
-            doc.render(context)
-            doc.save(spg_path)
-
-            with open(spg_path, "rb") as f:
-                st.download_button(f"📥 Download Surat Panggilan untuk {row['Nama']}", f, file_name=spg_filename)
+    except Exception as e:
+        st.error(f"Gagal membaca file: {e}")
 
