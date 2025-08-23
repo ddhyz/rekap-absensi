@@ -1,5 +1,5 @@
 # ===============================
-# app_streamlit.py (Multi Sheet + Gabungan + Hide "Sheet")
+# app_streamlit.py (Multi-sheet + Telat + Highlight ID 1000)
 # ===============================
 import streamlit as st
 import pandas as pd
@@ -30,6 +30,7 @@ def sort_nicely(l):
         return [convert(c) for c in re.split('([0-9]+)', key)]
     return sorted(l, key=alphanum_key)
 
+# Highlight di Streamlit
 def highlight_id(val):
     if str(val) == "1000":
         return "background-color: lightgreen; color: black; font-weight: bold;"
@@ -50,43 +51,46 @@ if uploaded_file:
 
     # === Baca semua sheet ===
     all_sheets = pd.read_excel(file_path, sheet_name=None)
-    df_all = []
+    semua_df = []
 
     for sheet_name, df in all_sheets.items():
+        if df.empty: 
+            continue
+
         max_cols = len(df.columns)
         column_mapping = {}
-        column_names = ['Perusahaan', 'Nama', 'ID', 'Tgl/Waktu', 'Mesin_ID', 
-                        'Kolom6', 'Status', 'Kolom8']
+        column_names = ['Perusahaan', 'Nama', 'ID', 'Tgl/Waktu', 'Mesin_ID', 'Kolom6', 'Status', 'Kolom8']
         for i in range(min(max_cols, len(column_names))):
             column_mapping[column_names[i]] = df.iloc[:, i]
         df_fix = pd.DataFrame(column_mapping)
 
-        # Tambah kolom "Sheet" untuk internal tracking
-        df_fix["Sheet"] = sheet_name
-        df_all.append(df_fix)
+        # Normalisasi
+        df_fix["Nama"] = df_fix["Nama"].astype(str).str.strip()
+        df_fix["ID"] = df_fix["ID"].apply(clean_id)
+        df_fix = df_fix[df_fix["Nama"].notna() & (df_fix["Nama"] != "nan") & (df_fix["Nama"] != "")]
+        df_fix = df_fix[df_fix["ID"].notna() & (df_fix["ID"] != "nan") & (df_fix["ID"] != "")]
+        df_fix["Tgl/Waktu"] = pd.to_datetime(df_fix["Tgl/Waktu"], dayfirst=True, errors='coerce')
+        df_fix = df_fix.dropna(subset=["Tgl/Waktu"])
+        df_fix["Tanggal_Saja"] = df_fix["Tgl/Waktu"].dt.date
+        df_fix = df_fix.drop_duplicates(subset=["ID", "Tanggal_Saja"])
 
-    df_fix = pd.concat(df_all, ignore_index=True)
+        semua_df.append(df_fix)
+
+    # Gabungkan semua sheet jadi 1 dataframe
+    if semua_df:
+        df_fix = pd.concat(semua_df, ignore_index=True)
+    else:
+        st.error("File tidak memiliki data absensi yang valid.")
+        st.stop()
 
     # ID unik
-    semua_id_dari_file = [clean_id(idv) for idv in df_fix["ID"] if clean_id(idv) != ""]
-    semua_id_unik = sort_nicely(list(set(semua_id_dari_file)))
-
-    # Normalisasi
-    df_fix["Nama"] = df_fix["Nama"].astype(str).str.strip()
-    df_fix["ID"] = df_fix["ID"].apply(clean_id)
-    df_fix = df_fix[df_fix["Nama"].notna() & (df_fix["Nama"] != "nan") & (df_fix["Nama"] != "")]
-    df_fix = df_fix[df_fix["ID"].notna() & (df_fix["ID"] != "nan") & (df_fix["ID"] != "")]
-    df_fix["Tgl/Waktu"] = pd.to_datetime(df_fix["Tgl/Waktu"], dayfirst=True, errors='coerce')
-    df_fix = df_fix.dropna(subset=["Tgl/Waktu"])
-    df_fix["Tanggal_Saja"] = df_fix["Tgl/Waktu"].dt.date
-    df_fix = df_fix.drop_duplicates(subset=["ID", "Tanggal_Saja", "Sheet"])
+    semua_id_unik = sort_nicely(list(set(df_fix["ID"].tolist())))
 
     # Rentang tanggal kerja (tanpa Minggu)
     if not df_fix["Tgl/Waktu"].empty:
         tanggal_awal = df_fix["Tgl/Waktu"].dt.date.min()
         tanggal_akhir = df_fix["Tgl/Waktu"].dt.date.max()
-        semua_tanggal = [tgl for tgl in pd.date_range(tanggal_awal, tanggal_akhir).date 
-                         if pd.Timestamp(tgl).weekday() != 6]
+        semua_tanggal = [tgl for tgl in pd.date_range(tanggal_awal, tanggal_akhir).date if pd.Timestamp(tgl).weekday() != 6]
     else:
         semua_tanggal = []
 
@@ -100,14 +104,11 @@ if uploaded_file:
         hadir_tanggal = set(data_id["Tgl/Waktu"].dt.date) if not data_id.empty else set()
         tidak_hadir_tanggal = [tgl for tgl in semua_tanggal if tgl not in hadir_tanggal]
         for tgl in tidak_hadir_tanggal:
-            rekap_tidak_hadir.append({
-                "ID": id_karyawan, "Nama": nama_karyawan, "Tanggal Tidak Hadir": tgl
-            })
-        hadir_per_tanggal = len(hadir_tanggal)
+            rekap_tidak_hadir.append({"ID": id_karyawan, "Nama": nama_karyawan, "Tanggal Tidak Hadir": tgl})
         jumlah_absen_total.append({
-            "ID": id_karyawan, "Nama": nama_karyawan, "Jumlah Absen Total": hadir_per_tanggal
+            "ID": id_karyawan, "Nama": nama_karyawan,
+            "Jumlah Absen Total": len(hadir_tanggal)
         })
-
     df_tidak_hadir = pd.DataFrame(rekap_tidak_hadir)
     df_jumlah_absen = pd.DataFrame(jumlah_absen_total)
 
@@ -116,37 +117,58 @@ if uploaded_file:
         df_jumlah_absen = pd.merge(df_jumlah_absen, jumlah_tidak_hadir, on="ID", how="left")
     else:
         df_jumlah_absen["Jumlah Tidak Hadir"] = 0
-
     df_jumlah_absen["Jumlah Tidak Hadir"] = df_jumlah_absen["Jumlah Tidak Hadir"].fillna(0).astype(int)
 
-    # --- TAMPILKAN DI STREAMLIT (tanpa kolom Sheet) ---
-    st.subheader("📌 Rekap Tidak Hadir")
-    st.dataframe(df_tidak_hadir if not df_tidak_hadir.empty 
-                 else pd.DataFrame([{"Info":"Tidak ada data karyawan tidak hadir"}]))
+    # --- Rekap Telat (dari kolom Status) ---
+    df_telat = pd.DataFrame()
+    if "Status" in df_fix.columns:
+        df_telat = df_fix[df_fix["Status"].astype(str).str.lower() == "telat"].copy()
+        if not df_telat.empty:
+            jumlah_telat = df_telat.groupby("ID").size().reset_index(name="Jumlah Telat")
+            df_jumlah_absen = pd.merge(df_jumlah_absen, jumlah_telat, on="ID", how="left")
+        else:
+            df_jumlah_absen["Jumlah Telat"] = 0
+        df_jumlah_absen["Jumlah Telat"] = df_jumlah_absen["Jumlah Telat"].fillna(0).astype(int)
 
-    st.subheader("📌 Jumlah Kehadiran (Highlight ID 1000)")
+    # --- TAMPILKAN DI STREAMLIT ---
+    st.subheader("📌 Rekap Telat")
+    if not df_telat.empty:
+        st.dataframe(df_telat.style.applymap(highlight_id, subset=["ID"]))
+    else:
+        st.write("Tidak ada data karyawan telat.")
+
+    st.subheader("📌 Rekap Tidak Hadir")
+    if not df_tidak_hadir.empty:
+        st.dataframe(df_tidak_hadir.style.applymap(highlight_id, subset=["ID"]))
+    else:
+        st.write("Tidak ada data karyawan tidak hadir.")
+
+    st.subheader("📌 Jumlah Kehadiran")
     st.dataframe(df_jumlah_absen.style.applymap(highlight_id, subset=["ID"]))
 
-    # === Simpan ke Excel + highlight (tanpa kolom Sheet) ===
+    # === Simpan ke Excel + highlight ===
     hasil_rekap_path = os.path.join(UPLOAD_FOLDER, f"hasil_rekap_{uploaded_file.name}")
     with pd.ExcelWriter(hasil_rekap_path) as writer:
+        if not df_telat.empty:
+            df_telat.to_excel(writer, sheet_name="Karyawan Telat", index=False)
         if not df_tidak_hadir.empty:
             df_tidak_hadir.to_excel(writer, sheet_name="Karyawan Tidak Hadir", index=False)
         df_jumlah_absen.to_excel(writer, sheet_name="Jumlah Kehadiran", index=False)
 
     wb = load_workbook(hasil_rekap_path)
-    ws = wb["Jumlah Kehadiran"]
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=1):
-        for cell in row:
-            if str(cell.value) == "1000":
-                cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
-                cell.font = Font(color="000000", bold=True)
+    for sheet in wb.sheetnames:
+        ws = wb[sheet]
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=1):
+            for cell in row:
+                if str(cell.value) == "1000":
+                    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+                    cell.font = Font(color="000000", bold=True)
     wb.save(hasil_rekap_path)
 
     with open(hasil_rekap_path, "rb") as f:
         st.download_button("📥 Download Rekap Excel", f, file_name=os.path.basename(hasil_rekap_path))
 
-    # --- Surat Panggilan (>3 tidak hadir) ---
+    # --- Surat Panggilan untuk yang tidak hadir > 3 ---
     df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>3].copy()
     if not df_tidak_hadir_lebih3.empty:
         st.subheader("📌 Surat Panggilan")
