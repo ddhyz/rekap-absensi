@@ -1,5 +1,5 @@
 # ===============================
-# app_streamlit.py (Multi Sheet Support + Highlight ID=1000 + Surat Panggilan)
+# app_streamlit.py (Gabung Hasil dari Semua Sheet)
 # ===============================
 import streamlit as st
 import pandas as pd
@@ -51,9 +51,11 @@ if uploaded_file:
     # === Baca semua sheet ===
     all_sheets = pd.read_excel(file_path, sheet_name=None)
 
-    for sheet_name, df in all_sheets.items():
-        st.header(f"📑 Sheet: {sheet_name}")
+    # tempat gabungan
+    semua_tidak_hadir = []
+    semua_jumlah_absen = []
 
+    for sheet_name, df in all_sheets.items():
         # --- Normalisasi kolom ---
         max_cols = len(df.columns)
         column_mapping = {}
@@ -94,77 +96,91 @@ if uploaded_file:
             hadir_tanggal = set(data_id["Tgl/Waktu"].dt.date) if not data_id.empty else set()
             tidak_hadir_tanggal = [tgl for tgl in semua_tanggal if tgl not in hadir_tanggal]
             for tgl in tidak_hadir_tanggal:
-                rekap_tidak_hadir.append({"ID": id_karyawan, "Nama": nama_karyawan, "Tanggal Tidak Hadir": tgl})
+                rekap_tidak_hadir.append({
+                    "Sheet": sheet_name,
+                    "ID": id_karyawan,
+                    "Nama": nama_karyawan,
+                    "Tanggal Tidak Hadir": tgl
+                })
             hadir_per_tanggal = len(hadir_tanggal)
-            jumlah_absen_total.append({"ID": id_karyawan, "Nama": nama_karyawan, "Jumlah Absen Total": hadir_per_tanggal})
+            jumlah_absen_total.append({
+                "Sheet": sheet_name,
+                "ID": id_karyawan,
+                "Nama": nama_karyawan,
+                "Jumlah Absen Total": hadir_per_tanggal
+            })
 
-        df_tidak_hadir = pd.DataFrame(rekap_tidak_hadir)
-        df_jumlah_absen = pd.DataFrame(jumlah_absen_total)
+        semua_tidak_hadir.extend(rekap_tidak_hadir)
+        semua_jumlah_absen.extend(jumlah_absen_total)
 
+    # === Gabung semua hasil ===
+    df_tidak_hadir = pd.DataFrame(semua_tidak_hadir)
+    df_jumlah_absen = pd.DataFrame(semua_jumlah_absen)
+
+    if not df_tidak_hadir.empty:
+        jumlah_tidak_hadir = df_tidak_hadir.groupby(["Sheet","ID"]).size().reset_index(name="Jumlah Tidak Hadir")
+        df_jumlah_absen = pd.merge(df_jumlah_absen, jumlah_tidak_hadir, on=["Sheet","ID"], how="left")
+    else:
+        df_jumlah_absen["Jumlah Tidak Hadir"] = 0
+
+    df_jumlah_absen["Jumlah Tidak Hadir"] = df_jumlah_absen["Jumlah Tidak Hadir"].fillna(0).astype(int)
+
+    # --- TAMPILKAN ---
+    st.subheader("📌 Rekap Tidak Hadir (Semua Sheet Digabung)")
+    st.dataframe(df_tidak_hadir if not df_tidak_hadir.empty else pd.DataFrame([{"Info": "Tidak ada data karyawan tidak hadir"}]))
+
+    st.subheader("📌 Jumlah Kehadiran (Highlight ID 1000, Semua Sheet Digabung)")
+    st.dataframe(df_jumlah_absen.style.applymap(highlight_id, subset=["ID"]))
+
+    # === Simpan ke Excel (1 file gabungan) ===
+    hasil_rekap_path = os.path.join(UPLOAD_FOLDER, f"hasil_rekap_gabungan_{uploaded_file.name}")
+    with pd.ExcelWriter(hasil_rekap_path) as writer:
         if not df_tidak_hadir.empty:
-            jumlah_tidak_hadir = df_tidak_hadir.groupby("ID").size().reset_index(name="Jumlah Tidak Hadir")
-            df_jumlah_absen = pd.merge(df_jumlah_absen, jumlah_tidak_hadir, on="ID", how="left")
-        else:
-            df_jumlah_absen["Jumlah Tidak Hadir"] = 0
+            df_tidak_hadir.to_excel(writer, sheet_name="Karyawan Tidak Hadir", index=False)
+        df_jumlah_absen.to_excel(writer, sheet_name="Jumlah Kehadiran", index=False)
 
-        df_jumlah_absen["Jumlah Tidak Hadir"] = df_jumlah_absen["Jumlah Tidak Hadir"].fillna(0).astype(int)
+    wb = load_workbook(hasil_rekap_path)
+    ws = wb["Jumlah Kehadiran"]
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=2, max_col=2):  # kolom ID ada di kolom B
+        for cell in row:
+            if str(cell.value) == "1000":
+                cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+                cell.font = Font(color="000000", bold=True)
+    wb.save(hasil_rekap_path)
 
-        # --- TAMPILKAN ---
-        st.subheader("📌 Rekap Tidak Hadir")
-        st.dataframe(df_tidak_hadir if not df_tidak_hadir.empty else pd.DataFrame([{"Info": "Tidak ada data karyawan tidak hadir"}]))
+    with open(hasil_rekap_path, "rb") as f:
+        st.download_button("📥 Download Rekap Excel (Gabungan Semua Sheet)", f, file_name=os.path.basename(hasil_rekap_path))
 
-        st.subheader("📌 Jumlah Kehadiran (Highlight ID 1000)")
-        st.dataframe(df_jumlah_absen.style.applymap(highlight_id, subset=["ID"]))
+    # --- Surat Panggilan (>3 tidak hadir) ---
+    df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"] > 3].copy()
+    if not df_tidak_hadir_lebih3.empty:
+        st.subheader("📌 Surat Panggilan")
+        hari_list = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"]
+        for _, row in df_tidak_hadir_lebih3.iterrows():
+            spg_filename = f"surat_panggilan_{row['ID']}_{row['Sheet']}_{uploaded_file.name.rsplit('.',1)[0]}.docx"
+            spg_path = os.path.join(UPLOAD_FOLDER, spg_filename)
+            template_path = os.path.join("templates", "template_surat_panggilan.docx")
+            doc = DocxTemplate(template_path)
 
-        # === Simpan ke Excel + highlight ===
-        hasil_rekap_path = os.path.join(UPLOAD_FOLDER, f"hasil_rekap_{sheet_name}_{uploaded_file.name}")
-        with pd.ExcelWriter(hasil_rekap_path) as writer:
-            if not df_tidak_hadir.empty:
-                df_tidak_hadir.to_excel(writer, sheet_name="Karyawan Tidak Hadir", index=False)
-            df_jumlah_absen.to_excel(writer, sheet_name="Jumlah Kehadiran", index=False)
+            df_absen_id = df_tidak_hadir[(df_tidak_hadir["ID"] == row["ID"]) & (df_tidak_hadir["Sheet"] == row["Sheet"])]
+            semua_tgl = df_absen_id["Tanggal Tidak Hadir"].apply(lambda x: x.strftime("%d-%m-%Y")).tolist()
+            tanggal_terakhir = ", ".join(semua_tgl)
+            jumlah_hari = len(semua_tgl)
 
-        wb = load_workbook(hasil_rekap_path)
-        ws = wb["Jumlah Kehadiran"]
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=1):
-            for cell in row:
-                if str(cell.value) == "1000":
-                    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
-                    cell.font = Font(color="000000", bold=True)
-        wb.save(hasil_rekap_path)
+            tanggal_surat = date.today()
+            nama_hari = hari_list[tanggal_surat.weekday()]
 
-        with open(hasil_rekap_path, "rb") as f:
-            st.download_button(f"📥 Download Rekap Excel ({sheet_name})", f, file_name=os.path.basename(hasil_rekap_path))
+            context = {
+                "NAMA": row["Nama"],
+                "ID": row["ID"],
+                "JUMLAH_HARI": jumlah_hari,
+                "TANGGAL_ABSEN": tanggal_terakhir,
+                "TANGGAL_SURAT": f"{nama_hari}, {tanggal_surat.strftime('%d-%m-%Y')}"
+            }
 
-        # --- Surat Panggilan (>3 tidak hadir) ---
-        df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"] > 3].copy()
-        if not df_tidak_hadir_lebih3.empty:
-            st.subheader("📌 Surat Panggilan")
-            hari_list = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"]
-            for _, row in df_tidak_hadir_lebih3.iterrows():
-                spg_filename = f"surat_panggilan_{row['ID']}_{sheet_name}_{uploaded_file.name.rsplit('.',1)[0]}.docx"
-                spg_path = os.path.join(UPLOAD_FOLDER, spg_filename)
-                template_path = os.path.join("templates", "template_surat_panggilan.docx")
-                doc = DocxTemplate(template_path)
+            doc.render(context)
+            doc.save(spg_path)
 
-                df_absen_id = df_tidak_hadir[df_tidak_hadir["ID"] == row["ID"]]
-                semua_tgl = df_absen_id["Tanggal Tidak Hadir"].apply(lambda x: x.strftime("%d-%m-%Y")).tolist()
-                tanggal_terakhir = ", ".join(semua_tgl)
-                jumlah_hari = len(semua_tgl)
-
-                tanggal_surat = date.today()
-                nama_hari = hari_list[tanggal_surat.weekday()]
-
-                context = {
-                    "NAMA": row["Nama"],
-                    "ID": row["ID"],
-                    "JUMLAH_HARI": jumlah_hari,
-                    "TANGGAL_ABSEN": tanggal_terakhir,
-                    "TANGGAL_SURAT": f"{nama_hari}, {tanggal_surat.strftime('%d-%m-%Y')}"
-                }
-
-                doc.render(context)
-                doc.save(spg_path)
-
-                with open(spg_path, "rb") as f:
-                    st.download_button(f"📥 Download Surat Panggilan untuk {row['Nama']} ({sheet_name})", f, file_name=spg_filename)
+            with open(spg_path, "rb") as f:
+                st.download_button(f"📥 Download Surat Panggilan untuk {row['Nama']} (Sheet {row['Sheet']})", f, file_name=spg_filename)
 
