@@ -1,5 +1,5 @@
 # ===============================
-# app_streamlit.py (Final + Sheet Tidak Hadir ≥3 Hari)
+# app_streamlit.py (Final + Sheet Tidak Hadir ≥3 Hari + Bulan Huruf di Surat)
 # ===============================
 import streamlit as st
 import pandas as pd
@@ -205,7 +205,7 @@ if uploaded_file:
             doc = DocxTemplate(template_path)
 
             df_absen_id = df_tidak_hadir[df_tidak_hadir["ID"]==row['ID']]
-            semua_tgl = df_absen_id["Tanggal Tidak Hadir"].apply(lambda x: x.strftime("%d-%m-%Y")).tolist()
+            semua_tgl = df_absen_id["Tanggal Tidak Hadir"].apply(lambda x: x.strftime("%d %B %Y")).tolist()
             tanggal_terakhir = ", ".join(semua_tgl)
             jumlah_hari = len(semua_tgl)
 
@@ -217,7 +217,7 @@ if uploaded_file:
                 "ID": row["ID"],
                 "JUMLAH_HARI": jumlah_hari,
                 "TANGGAL_ABSEN": tanggal_terakhir,
-                "TANGGAL_SURAT": f"{nama_hari}, {tanggal_surat.strftime('%d-%m-%Y')}"
+                "TANGGAL_SURAT": f"{nama_hari}, {tanggal_surat.strftime('%d %B %Y')}"
             }
 
             doc.render(context)
@@ -225,4 +225,3 @@ if uploaded_file:
 
             with open(spg_path, "rb") as f:
                 st.download_button(f"📥 Download Surat Panggilan untuk {row['Nama']}", f, file_name=spg_filename)
-
