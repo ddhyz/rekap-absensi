@@ -1,5 +1,5 @@
 # ===============================
-# app_streamlit.py (Lengkap)
+# app_streamlit.py (Lengkap + Sheet Tidak Hadir ≥3 Hari)
 # ===============================
 import streamlit as st
 import pandas as pd
@@ -210,4 +210,8 @@ if uploaded_file:
 
             with open(spg_path, "rb") as f:
                 st.download_button(f"📥 Download Surat Panggilan untuk {row['Nama']}", f, file_name=spg_filename)
+
+        # --- Tambahkan sheet Excel untuk karyawan tidak hadir ≥3 hari ---
+        with pd.ExcelWriter(hasil_rekap_path, mode="a", engine="openpyxl") as writer:
+            df_tidak_hadir_lebih3.to_excel(writer, sheet_name="Tidak Hadir ≥3 Hari", index=False)
 
