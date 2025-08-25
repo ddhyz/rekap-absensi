@@ -1,5 +1,5 @@
 # ===============================
-# app_streamlit.py (Lengkap + Sheet Tidak Hadir ≥3 Hari)
+# app_streamlit.py (Final + Sheet Tidak Hadir ≥3 Hari)
 # ===============================
 import streamlit as st
 import pandas as pd
@@ -9,6 +9,7 @@ import re
 from docxtpl import DocxTemplate
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 # --- Konfigurasi upload ---
 UPLOAD_FOLDER = "uploads"
@@ -148,16 +149,19 @@ if uploaded_file:
     st.subheader("📌 Jumlah Kehadiran")
     st.dataframe(df_jumlah_absen.style.applymap(highlight_id, subset=["ID"]))
 
-    # === Simpan ke Excel + highlight ===
+    # === Simpan semua sheet utama ke Excel ===
     hasil_rekap_path = os.path.join(UPLOAD_FOLDER, f"hasil_rekap_{uploaded_file.name}")
-    with pd.ExcelWriter(hasil_rekap_path) as writer:
+    with pd.ExcelWriter(hasil_rekap_path, engine="openpyxl") as writer:
         if not df_telat.empty:
             df_telat.to_excel(writer, sheet_name="Karyawan Telat", index=False)
         if not df_tidak_hadir.empty:
             df_tidak_hadir.to_excel(writer, sheet_name="Karyawan Tidak Hadir", index=False)
         df_jumlah_absen.to_excel(writer, sheet_name="Jumlah Kehadiran", index=False)
 
+    # --- Load workbook untuk highlight & tambah sheet baru ---
     wb = load_workbook(hasil_rekap_path)
+
+    # Highlight ID 1000 di semua sheet
     for sheet in wb.sheetnames:
         ws = wb[sheet]
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=1):
@@ -165,20 +169,31 @@ if uploaded_file:
                 if str(cell.value) == "1000":
                     cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
                     cell.font = Font(color="000000", bold=True)
+
+    # --- Sheet Tidak Hadir ≥3 Hari ---
+    df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>=3].copy()
+    if not df_tidak_hadir_lebih3.empty:
+        ws2 = wb.create_sheet(title="Tidak Hadir ≥3 Hari")
+        for r_idx, row in enumerate(dataframe_to_rows(df_tidak_hadir_lebih3, index=False, header=True), 1):
+            for c_idx, value in enumerate(row, 1):
+                ws2.cell(row=r_idx, column=c_idx, value=value)
+        # Highlight ID 1000 di sheet baru
+        for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=1):
+            for cell in row:
+                if str(cell.value) == "1000":
+                    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+                    cell.font = Font(color="000000", bold=True)
+
     wb.save(hasil_rekap_path)
 
+    # --- Download file Excel ---
     with open(hasil_rekap_path, "rb") as f:
         st.download_button("📥 Download Rekap Excel", f, file_name=os.path.basename(hasil_rekap_path))
 
     # --- Surat Panggilan (≥3 Tidak Hadir) ---
-    df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>=3].copy()
     if not df_tidak_hadir_lebih3.empty:
         st.subheader("📌 Surat Panggilan (≥3 Tidak Hadir)")
-
-        # Urut dari yang paling banyak tidak hadir
         df_tidak_hadir_lebih3 = df_tidak_hadir_lebih3.sort_values(by="Jumlah Tidak Hadir", ascending=False)
-
-        # Tampilkan tabel daftar karyawan
         st.dataframe(df_tidak_hadir_lebih3[["ID","Nama","Jumlah Tidak Hadir"]]
                      .style.applymap(highlight_id, subset=["ID"]))
 
@@ -210,8 +225,4 @@ if uploaded_file:
 
             with open(spg_path, "rb") as f:
                 st.download_button(f"📥 Download Surat Panggilan untuk {row['Nama']}", f, file_name=spg_filename)
-
-        # --- Tambahkan sheet Excel untuk karyawan tidak hadir ≥3 hari ---
-        with pd.ExcelWriter(hasil_rekap_path, mode="a", engine="openpyxl") as writer:
-            df_tidak_hadir_lebih3.to_excel(writer, sheet_name="Tidak Hadir ≥3 Hari", index=False)
 
