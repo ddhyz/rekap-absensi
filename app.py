@@ -170,10 +170,18 @@ if uploaded_file:
     with open(hasil_rekap_path, "rb") as f:
         st.download_button("📥 Download Rekap Excel", f, file_name=os.path.basename(hasil_rekap_path))
 
-    # --- Surat Panggilan ---
-    df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>3].copy()
+    # --- Surat Panggilan (≥3 Tidak Hadir) ---
+    df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>=3].copy()
     if not df_tidak_hadir_lebih3.empty:
-        st.subheader("📌 Surat Panggilan (>3 Tidak Hadir)")
+        st.subheader("📌 Surat Panggilan (≥3 Tidak Hadir)")
+
+        # Urut dari yang paling banyak tidak hadir
+        df_tidak_hadir_lebih3 = df_tidak_hadir_lebih3.sort_values(by="Jumlah Tidak Hadir", ascending=False)
+
+        # Tampilkan tabel daftar karyawan
+        st.dataframe(df_tidak_hadir_lebih3[["ID","Nama","Jumlah Tidak Hadir"]]
+                     .style.applymap(highlight_id, subset=["ID"]))
+
         hari_list = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"]
         for _, row in df_tidak_hadir_lebih3.iterrows():
             spg_filename = f"surat_panggilan_{row['ID']}_{uploaded_file.name.rsplit('.',1)[0]}.docx"
