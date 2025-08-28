@@ -32,9 +32,11 @@ def sort_nicely(l):
     return sorted(l, key=alphanum_key)
 
 def highlight_id(val):
-    if str(val) == "1000":
-        return "background-color: lightgreen; color: black; font-weight: bold;"
+    highlight_ids = {"119","111","112","106","13","18","71","19","148","90","82","142","127"}
+    if str(val) in highlight_ids:
+        return "background-color: lightgreen; color: black;"
     return ""
+
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Rekap Absensi PT. QUANTUM", layout="wide")
@@ -166,9 +168,10 @@ if uploaded_file:
         ws = wb[sheet]
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=1):
             for cell in row:
-                if str(cell.value) == "1000":
-                    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
-                    cell.font = Font(color="000000", bold=True)
+                highlight_ids = {"119","111","112","106","13","18","71","19","148","90","82","142","127"}
+if str(cell.value) in highlight_ids:
+    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+    cell.font = Font(color="000000", bold=True)
 
     # --- Sheet Tidak Hadir ≥3 Hari ---
     df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>=3].copy()
@@ -225,3 +228,4 @@ if uploaded_file:
 
             with open(spg_path, "rb") as f:
                 st.download_button(f"📥 Download Surat Panggilan untuk {row['Nama']}", f, file_name=spg_filename)
+
