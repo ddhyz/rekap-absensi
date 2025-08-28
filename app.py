@@ -15,6 +15,9 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# --- Daftar ID yang di-highlight ---
+highlight_ids = {"119","111","112","106","13","18","71","19","148","90","82","142","127"}
+
 # --- Helper ---
 def clean_id(id_value):
     if pd.isna(id_value):
@@ -32,11 +35,9 @@ def sort_nicely(l):
     return sorted(l, key=alphanum_key)
 
 def highlight_id(val):
-    highlight_ids = {"119","111","112","106","13","18","71","19","148","90","82","142","127"}
     if str(val) in highlight_ids:
-        return "background-color: lightgreen; color: black;"
+        return "background-color: lightgreen; color: black; font-weight: bold;"
     return ""
-
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Rekap Absensi PT. QUANTUM", layout="wide")
@@ -163,15 +164,14 @@ if uploaded_file:
     # --- Load workbook untuk highlight & tambah sheet baru ---
     wb = load_workbook(hasil_rekap_path)
 
-    # Highlight ID 1000 di semua sheet
+    # Highlight ID tertentu di semua sheet
     for sheet in wb.sheetnames:
         ws = wb[sheet]
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=1):
             for cell in row:
-                highlight_ids = {"119","111","112","106","13","18","71","19","148","90","82","142","127"}
-if str(cell.value) in highlight_ids:
-    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
-    cell.font = Font(color="000000", bold=True)
+                if str(cell.value) in highlight_ids:
+                    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+                    cell.font = Font(color="000000", bold=True)
 
     # --- Sheet Tidak Hadir ≥3 Hari ---
     df_tidak_hadir_lebih3 = df_jumlah_absen[df_jumlah_absen["Jumlah Tidak Hadir"]>=3].copy()
@@ -180,10 +180,10 @@ if str(cell.value) in highlight_ids:
         for r_idx, row in enumerate(dataframe_to_rows(df_tidak_hadir_lebih3, index=False, header=True), 1):
             for c_idx, value in enumerate(row, 1):
                 ws2.cell(row=r_idx, column=c_idx, value=value)
-        # Highlight ID 1000 di sheet baru
+        # Highlight ID tertentu di sheet baru
         for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=1, max_col=1):
             for cell in row:
-                if str(cell.value) == "1000":
+                if str(cell.value) in highlight_ids:
                     cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
                     cell.font = Font(color="000000", bold=True)
 
